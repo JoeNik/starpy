@@ -1,5 +1,9 @@
 FROM --platform=linux/arm64 centos:7
 
+# 配置CentOS 7归档源
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+
 # 安装必要的系统依赖
 RUN yum -y update && \
     yum -y install epel-release && \
