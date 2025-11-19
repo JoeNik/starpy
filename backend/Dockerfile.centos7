@@ -7,15 +7,25 @@ RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
 # 安装必要的系统依赖
 RUN yum -y update && \
     yum -y install epel-release && \
-    yum -y install python36 python36-pip python36-devel gcc && \
+    yum -y install gcc gcc-c++ make zlib-devel bzip2-devel readline-devel sqlite-devel openssl-devel libffi-devel && \
     yum clean all
+
+# 安装Python 3.9
+RUN cd /tmp && \
+    curl -O https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz && \
+    tar xzf Python-3.9.18.tgz && \
+    cd Python-3.9.18 && \
+    ./configure --enable-optimizations && \
+    make altinstall && \
+    cd / && \
+    rm -rf /tmp/Python-3.9.18*
 
 # 设置工作目录
 WORKDIR /app
 
 # 复制依赖文件并安装Python包
 COPY requirements.txt .
-RUN pip3.6 install --no-cache-dir -r requirements.txt
+RUN python3.9 -m pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY . .
@@ -27,4 +37,4 @@ RUN mkdir -p storage/app/avatars storage/app/public storage/app/rewards storage/
 EXPOSE 8000
 
 # 启动命令
-CMD ["python3.6", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3.9", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
