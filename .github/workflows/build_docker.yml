@@ -1,0 +1,28 @@
+# .github/workflows/build-arm64-docker.yml
+name: Build ARM64 Docker Image for CentOS 7
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+        
+    - name: Build Docker image for ARM64
+      run: |
+        docker build -t starpro-backend:arm64-centos7 --platform linux/arm64 -f backend/Dockerfile.centos7 backend/
+        
+    - name: Save Docker image
+      run: |
+        docker save starpro-backend:arm64-centos7 | gzip > starpro-backend-arm64-centos7.tar.gz
+        
+    - name: Upload Docker image
+      uses: actions/upload-artifact@v4
+      with:
+        name: starpro-backend-arm64-docker
+        path: starpro-backend-arm64-centos7.tar.gz
