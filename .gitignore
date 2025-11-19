@@ -1,0 +1,7 @@
+backend/starpro-backend.spec
+backend/build/
+backend/dist/
+backend/venv/
+
+setup-arm64-build.sh
+backend/starpro-backend-arm64.spec

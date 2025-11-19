@@ -1,0 +1,32 @@
+# .github/workflows/build-arm64.yml
+name: Build ARM64 Executable
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: arm64
+        
+    - name: Build ARM64 executable
+      run: |
+        docker run --rm --platform linux/arm64 \
+          -v $PWD/backend:/workspace \
+          -w /workspace \
+          python:3.11-slim \
+          bash -c "
+            apt-get update && apt-get install -y binutils build-essential
+            pip install -r requirements.txt pyinstaller
+            pyinstaller starpro-backend.spec
+          "
+          
+    - name: Upload ARM64 executable
+      uses: actions/upload-artifact@v3
+      with:
+        name: starpro-backend-arm64
+        path: backend/dist/starpro-backend

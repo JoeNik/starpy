@@ -2,7 +2,7 @@
 
 面向3-10岁儿童的家庭奖励系统,通过星星积分激励良好行为。
 
-**本项目是原Laravel后端的Python FastAPI完整移植版本,实现100%功能对等。**
+**本项目是原[`tbphp/star`](https://github.com/tbphp/star)后端的Python FastAPI完整移植版本,实现100%功能对等。**
 
 ## 技术栈
 
