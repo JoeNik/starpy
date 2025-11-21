@@ -1,10 +1,11 @@
-FROM --platform=linux/arm64 centos:7
+# 构建阶段
+FROM --platform=linux/arm64 centos:7 as builder
 
 # 配置CentOS 7归档源
 RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
     sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
 
-# 安装必要的系统依赖
+# 安装构建依赖
 RUN yum -y update && \
     yum -y install epel-release && \
     yum -y install gcc gcc-c++ make zlib-devel bzip2-devel readline-devel sqlite-devel openssl-devel libffi-devel && \
@@ -15,7 +16,8 @@ RUN cd /tmp && \
     curl -O https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz && \
     tar xzf Python-3.9.18.tgz && \
     cd Python-3.9.18 && \
-    ./configure --enable-optimizations && \
+    ./configure --enable-optimizations --enable-shared --with-system-ffi && \
+    make -j4 && \
     make altinstall && \
     cd / && \
     rm -rf /tmp/Python-3.9.18*
@@ -25,10 +27,38 @@ WORKDIR /app
 
 # 复制依赖文件并安装Python包
 COPY requirements.txt .
-RUN python3.9 -m pip install --no-cache-dir -r requirements.txt
+RUN python3.9 -m pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # 复制应用代码
 COPY . .
+
+# 生产阶段
+FROM --platform=linux/arm64 centos:7
+
+# 配置CentOS 7归档源
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+
+# 只安装运行时依赖
+RUN yum -y update && \
+    yum -y install epel-release && \
+    yum -y install libffi-devel openssl-devel sqlite-devel && \
+    yum clean all
+
+# 从构建阶段复制Python和已安装的包
+COPY --from=builder /usr/local/bin/python3.9 /usr/local/bin/python3.9
+COPY --from=builder /usr/local/lib/python3.9 /usr/local/lib/python3.9
+COPY --from=builder /install /usr/local
+
+# 创建符号链接
+RUN ln -sf /usr/local/bin/python3.9 /usr/bin/python3.9 && \
+    ln -sf /usr/local/bin/pip3.9 /usr/bin/pip3.9
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制应用代码
+COPY --from=builder /app .
 
 # 创建存储目录
 RUN mkdir -p storage/app/avatars storage/app/public storage/app/rewards storage/avatars storage/logs storage/rewards
