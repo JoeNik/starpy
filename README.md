@@ -38,7 +38,7 @@
 
 ## 快速开始
 
-### 方式1: Docker Compose部署(推荐)
+### 方式1: Docker Compose部署(暂时有bug，不建议)
 
 ```bash
 # 1. 确保安装Docker和Docker Compose
@@ -111,6 +111,138 @@ npm install
 npm run dev
 
 # 访问: http://localhost:5173
+```
+
+### 方式3: 本地开发(小型服务器环境安装困难时可以参考)
+
+#### 后端开发
+在 CentOS 7（低配、老旧内核）上部署 Python 3.11 遇到的核心挑战与解决方案：
+```
+# 1. 下载兼容 glibc 2.17 的 Python 3.11 包
+cd ~
+wget https://github.com/indygreg/python-build-standalone/releases/download/20240726/cpython-3.11.9+20240726-x86_64-unknown-linux-gnu-install_only.tar.gz
+
+# 2. 解压并安装到 /usr/local
+tar -xzf cpython-3.11.9+20240726-x86_64-unknown-linux-gnu-install_only.tar.gz
+sudo mv python /usr/local/python3.11
+sudo chmod -R 755 /usr/local/python3.11
+
+# 3. 创建系统软链接 (如有旧版 python3 请先备份)
+sudo ln -sf /usr/local/python3.11/bin/python3 /usr/bin/python3
+sudo ln -sf /usr/local/python3.11/bin/pip3 /usr/bin/pip3
+
+# 4. 验证
+python3 --version  # 应输出 Python 3.11.9
+```
+
+```
+cd /opt/git/starpy
+
+# 使用清华源加速安装
+pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+```
+创建服务文件以实现开机自启和后台管理。
+sudo vi /etc/systemd/system/starpy.service
+写入以下内容：
+code
+Ini
+[Unit]
+Description=Starpy Backend Service
+After=network.target
+
+[Service]
+Type=simple
+# 项目根目录
+WorkingDirectory=/opt/git/starpy
+# 启动命令
+ExecStart=/usr/bin/python3 main.py
+# 环境变量：禁用缓冲区以便查看日志
+Environment=PYTHONUNBUFFERED=1
+# 生产环境建议关闭 Debug (需配合代码修改)
+# Environment=APP_ENV=production
+
+# 自动重启策略
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+启动后端服务：
+code
+Bash
+sudo systemctl daemon-reload
+sudo systemctl start starpy
+sudo systemctl enable starpy
+```
+
+
+```bash
+
+# 配置环境变量
+cp .env.example .env
+# 编辑.env文件,配置数据库路径等
+
+# API文档访问: http://localhost:8000/docs
+```
+
+#### 前端开发(复用原项目)
+##### 安装 Nginx
+
+```
+# 安装 EPEL 源
+yum install -y epel-release
+# 安装 Nginx
+yum install -y nginx
+# 启动 Nginx
+systemctl start nginx
+systemctl enable nginx
+```
+##### 上传前端文件
+将打包好的前端资源（dist 文件夹内的内容）上传到服务器。
+假设路径为：/opt/git/starpy/frontend/dist
+
+##### 配置 Nginx 反向代理
+编辑配置文件：
+sudo vi /etc/nginx/conf.d/starpy.conf
+```
+server {
+    listen 38000;
+    # 将此处替换为你的域名或服务器IP
+    server_name _; 
+
+    # 1. 前端静态资源托管
+    location / {
+        root /opt/git/starpy/frontend/dist;
+        index index.html;
+        # SPA 单页应用必备：路由找不到时回退到 index.html
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 2. 后端 API 反向代理
+    # 假设后端接口都以 /api 开头，或者根据实际情况调整
+    # 如果后端没有统一前缀，可能需要根据实际路由调整 location
+    location /api/ { 
+        proxy_pass http://127.0.0.1:38001;
+        
+        # 传递真实 IP 头
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        # 支持 WebSocket (如果项目用了的话)
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+##### 重载 Nginx
+检查配置是否正确并重启：
+```
+nginx -t
+systemctl reload nginx
 ```
 
 ## 项目结构
