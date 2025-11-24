@@ -1,5 +1,5 @@
 # 构建阶段
-FROM --platform=linux/arm64 centos:7 as builder
+FROM --platform=linux/arm64 centos:7 AS builder
 
 # 配置CentOS 7归档源
 RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
@@ -33,7 +33,7 @@ RUN python3.9 -m pip install --no-cache-dir --prefix=/install -r requirements.tx
 COPY . .
 
 # 生产阶段
-FROM --platform=linux/arm64 centos:7
+FROM --platform=$TARGETPLATFORM centos:7
 
 # 配置CentOS 7归档源
 RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo && \
