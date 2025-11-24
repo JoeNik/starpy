@@ -135,16 +135,17 @@ const contentClass = computed(() => {
 const reasonTags = computed(() => {
   if (props.type === "add") {
     return [
-      { emoji: "😊", text: "认真" },
-      { emoji: "🏃", text: "主动" },
-      { emoji: "😴", text: "按时" },
-      { emoji: "🤝", text: "分享" },
+      { emoji: "😊", text: "早起不拖拉" },
+      { emoji: "🏃", text: "不迟到" },
+      { emoji: "😴", text: "写字20分钟" },
+      { emoji: "🤝", text: "22点前睡觉" },
+      { emoji: "🤗", text: "收拾区域" },
     ];
   } else {
     return [
-      { emoji: "😢", text: "不听话" },
+      { emoji: "😢", text: "迟到" },
       { emoji: "🎮", text: "玩太久" },
-      { emoji: "😴", text: "不按时" },
+      { emoji: "😡", text: "说谎" },
       { emoji: "😤", text: "发脾气" },
     ];
   }
