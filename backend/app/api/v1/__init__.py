@@ -5,7 +5,7 @@ API v1版本路由
 """
 from fastapi import APIRouter
 
-from app.api.v1 import children, stars, rewards
+from app.api.v1 import children, stars, rewards, wallet
 
 api_router = APIRouter()
 
@@ -13,5 +13,6 @@ api_router = APIRouter()
 api_router.include_router(children.router, prefix="/children", tags=["Children"])
 api_router.include_router(stars.router, prefix="/children", tags=["Stars"])
 api_router.include_router(rewards.router, prefix="/rewards", tags=["Rewards"])
+api_router.include_router(wallet.router, prefix="/wallet", tags=["钱包管理"])
 
 __all__ = ["api_router"]

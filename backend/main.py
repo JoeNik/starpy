@@ -18,6 +18,7 @@ from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import AppException, NotFoundError, ValidationError, ResourceNotFoundError
+from app.services.scheduler_service import scheduler_service
 
 
 @asynccontextmanager
@@ -37,10 +38,17 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("✓ Database initialized")
     
+    # 启动定时任务调度器
+    scheduler_service.setup_scheduler()
+    scheduler_service.start()
+    print("✓ Scheduler started")
+    
     yield
     
     # 关闭时执行
     print("Shutting down FastAPI application...")
+    scheduler_service.shutdown(wait=True)
+    print("✓ Scheduler stopped")
 
 
 # 创建FastAPI应用实例

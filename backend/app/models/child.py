@@ -38,6 +38,31 @@ class Child(BaseModel):
         lazy="selectin"
     )
     
+    # 钱包关系
+    savings_box = relationship(
+        "SavingsBox",
+        back_populates="child",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    pocket_money = relationship(
+        "PocketMoney",
+        back_populates="child",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
+    wallet_transactions = relationship(
+        "WalletTransaction",
+        back_populates="child",
+        cascade="all, delete-orphan",
+        order_by="WalletTransaction.created_at.desc()",
+        lazy="selectin"
+    )
+    
     @property
     def age(self) -> int:
         """计算当前年龄

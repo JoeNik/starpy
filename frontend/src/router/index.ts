@@ -13,6 +13,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ChildDetail.vue'),
   },
   {
+    path: '/child/:id/wallet',
+    name: 'Wallet',
+    component: () => import('@/views/WalletView.vue'),
+  },
+  {
     path: '/rewards',
     name: 'Rewards',
     component: () => import('@/views/RewardList.vue'),

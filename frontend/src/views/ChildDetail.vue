@@ -40,6 +40,7 @@
           <button class="btn-action btn-subtract" @click="handleSubtractStar">
             ➖
           </button>
+          <button class="btn-action btn-wallet" @click="goToWallet">💰</button>
         </div>
       </div>
 
@@ -250,6 +251,11 @@ const handleSubtractStar = () => {
 
 const goToRewards = () => {
   router.push("/rewards");
+};
+
+const goToWallet = () => {
+  if (!child.value) return;
+  router.push(`/child/${child.value.id}/wallet`);
 };
 
 const openRedeemModal = (reward: Reward) => {
@@ -479,6 +485,11 @@ onMounted(() => {
 
 .btn-subtract {
   background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+  color: white;
+}
+
+.btn-wallet {
+  background: linear-gradient(135deg, #ffd89b 0%, #19547b 100%);
   color: white;
 }
 

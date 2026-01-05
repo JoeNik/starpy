@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import List
 
 
@@ -30,6 +31,12 @@ class Settings(BaseSettings):
     API_URL: str = "http://localhost:8000"  # API 根地址
     AVATARS_PATH: str = "storage/avatars"
     REWARDS_PATH: str = "storage/rewards"
+    
+    # 钱包配置
+    SAVINGS_BOX_ANNUAL_INTEREST_RATE: float = Field(
+        default=5.0,
+        description="存钱罐年化利率（百分比），默认5%"
+    )
     
     model_config = SettingsConfigDict(
         env_file=".env",
