@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     AVATARS_PATH: str = "storage/avatars"
     REWARDS_PATH: str = "storage/rewards"
     
+    # 日志配置
+    LOG_LEVEL: str = Field(default="INFO", description="日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+    LOG_DIR: str = Field(default="./storage/logs", description="日志文件目录")
+    LOG_FILE: str = Field(default="app.log", description="应用日志文件名")
+    LOG_MAX_BYTES: int = Field(default=10485760, description="单个日志文件最大大小(字节),默认10MB")
+    LOG_BACKUP_COUNT: int = Field(default=5, description="保留的日志文件数量")
+    
     # 钱包配置
     SAVINGS_BOX_ANNUAL_INTEREST_RATE: float = Field(
         default=5.0,

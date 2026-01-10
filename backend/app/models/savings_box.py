@@ -4,6 +4,10 @@ from sqlalchemy import Column, Integer, Numeric, Date, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.base_model import BaseModel
 from app.core.config import settings
+import logging
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 class SavingsBox(BaseModel):
@@ -79,18 +83,52 @@ class SavingsBox(BaseModel):
         Returns:
             Decimal: 待结算利息金额
         """
-        if not self.last_interest_date or self.balance <= 0:
+        # 🔍 诊断日志: 打印初始条件
+        logger.debug(
+            f"[calculate_pending_interest] child_id={self.child_id}, "
+            f"last_interest_date={self.last_interest_date}, "
+            f"balance={self.balance}"
+        )
+        
+        # 如果余额为0,返回0利息
+        if self.balance <= 0:
+            logger.debug(
+                f"[calculate_pending_interest] 返回0 - "
+                f"原因: balance={self.balance} <= 0"
+            )
             return Decimal('0.00')
         
+        # 如果last_interest_date为None,使用created_at日期
+        start_date = self.last_interest_date or self.created_at.date()
+        
         today = date.today()
-        days = (today - self.last_interest_date).days
+        days = (today - start_date).days
+        
+        # 🔍 诊断日志: 打印天数计算
+        logger.debug(
+            f"[calculate_pending_interest] today={today}, "
+            f"start_date={start_date} "
+            f"(last_interest_date={'None' if not self.last_interest_date else self.last_interest_date}), "
+            f"days={days}"
+        )
         
         if days <= 0:
+            logger.debug(f"[calculate_pending_interest] 返回0 - 原因: days={days} <= 0")
             return Decimal('0.00')
         
         # 日利息 = 余额 * 日利率 * 天数
-        interest = self.balance * self.daily_interest_rate * Decimal(str(days))
-        return interest.quantize(Decimal('0.01'))  # 保留2位小数
+        daily_rate = self.daily_interest_rate
+        interest = self.balance * daily_rate * Decimal(str(days))
+        result = interest.quantize(Decimal('0.01'))  # 保留2位小数
+        
+        # 🔍 诊断日志: 打印计算过程
+        logger.debug(
+            f"[calculate_pending_interest] 计算完成 - "
+            f"余额={self.balance}, 日利率={daily_rate}, 天数={days}, "
+            f"利息={result}"
+        )
+        
+        return result
     
     def __repr__(self) -> str:
         return f"<SavingsBox(id={self.id}, child_id={self.child_id}, balance={self.balance}, interest={self.total_interest})>"

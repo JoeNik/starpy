@@ -32,6 +32,7 @@ class SchedulerService:
             AsyncIOScheduler: 配置好的调度器实例
         """
         if self.scheduler is not None:
+            logger.warning("调度器已存在,跳过重复初始化")
             return self.scheduler
         
         # 创建调度器实例
@@ -39,16 +40,23 @@ class SchedulerService:
         
         # 添加每日利息结算任务
         # 每天凌晨0:05执行（避开0点整点可能的系统负载）
+        # ⚠️ 诊断日志: 检查时区配置
+        trigger = CronTrigger(hour=0, minute=5, timezone='Asia/Shanghai')
         self.scheduler.add_job(
             self.daily_interest_settlement_job,
-            trigger=CronTrigger(hour=0, minute=5),
+            trigger=trigger,
             id='daily_interest_settlement',
             name='每日利息结算',
             replace_existing=True
         )
         
+        logger.info("=" * 60)
         logger.info("定时任务调度器配置完成")
-        logger.info("已添加任务: 每日利息结算 (每天 00:05 执行)")
+        logger.info(f"已添加任务: 每日利息结算")
+        logger.info(f"触发器配置: {trigger}")
+        logger.info(f"时区: Asia/Shanghai")
+        logger.info(f"执行时间: 每天 00:05 (Asia/Shanghai)")
+        logger.info("=" * 60)
         
         return self.scheduler
     
@@ -83,8 +91,19 @@ class SchedulerService:
                 # 2. 遍历每个存钱罐进行利息结算
                 for savings_box in savings_boxes:
                     try:
+                        # 🔍 诊断日志: 打印存钱罐详细信息
+                        logger.info(
+                            f"📊 检查存钱罐 [ID={savings_box.id}, child_id={savings_box.child_id}] "
+                            f"余额=¥{savings_box.balance}, "
+                            f"last_interest_date={savings_box.last_interest_date}, "
+                            f"interest_rate={savings_box.interest_rate}"
+                        )
+                        
                         # 计算待结算利息
                         interest = savings_box.calculate_pending_interest()
+                        
+                        # 🔍 诊断日志: 打印计算结果
+                        logger.info(f"💰 计算待结算利息: ¥{interest}")
                         
                         if interest > 0:
                             # 导入WalletService进行结算
@@ -143,7 +162,17 @@ class SchedulerService:
             raise RuntimeError("调度器未初始化，请先调用 setup_scheduler()")
         
         self.scheduler.start()
+        
+        # 🔍 诊断日志: 打印调度器状态和所有任务
+        logger.info("=" * 60)
         logger.info("定时任务调度器已启动")
+        logger.info(f"调度器状态: {self.scheduler.state}")
+        logger.info("已注册的任务列表:")
+        for job in self.scheduler.get_jobs():
+            logger.info(f"  - [{job.id}] {job.name}")
+            logger.info(f"    触发器: {job.trigger}")
+            logger.info(f"    下次执行: {job.next_run_time}")
+        logger.info("=" * 60)
     
     def shutdown(self, wait: bool = True):
         """

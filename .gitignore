@@ -4,3 +4,9 @@ backend/venv/
 
 setup-arm64-build.sh
 backend/starpro-backend-arm64.spec
+backend/test_logging_diagnosis.py
+backend/test_logging_fix.py
+backend/test_scheduler_diagnosis.py
+backend/test_scheduler_fix_verification.py
+backend/app/api/v1/__pycache__
+backend/app/core/__pycache__

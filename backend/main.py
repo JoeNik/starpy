@@ -18,6 +18,7 @@ from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import AppException, NotFoundError, ValidationError, ResourceNotFoundError
+from app.core.logging_config import setup_logging, get_logger
 from app.services.scheduler_service import scheduler_service
 
 
@@ -25,30 +26,32 @@ from app.services.scheduler_service import scheduler_service
 async def lifespan(app: FastAPI):
     """
     应用生命周期管理
-    启动时初始化数据库
+    启动时初始化数据库和日志系统
     """
-    # 启动时执行
-    print("=" * 50)
-    print("Starting FastAPI application...")
-    print(f"Environment: {settings.APP_ENV}")
-    print(f"Debug mode: {settings.APP_DEBUG}")
-    print("=" * 50)
+    # 1. 初始化日志系统(最先初始化,以便后续操作能记录日志)
+    logger = setup_logging()
+    logger.info("=" * 50)
+    logger.info("启动 FastAPI 应用")
+    logger.info(f"环境: {settings.APP_ENV}")
+    logger.info(f"调试模式: {settings.APP_DEBUG}")
+    logger.info("=" * 50)
     
-    # 初始化数据库
+    # 2. 初始化数据库
     await init_db()
-    print("✓ Database initialized")
+    logger.info("✓ 数据库初始化完成")
     
-    # 启动定时任务调度器
+    # 3. 启动定时任务调度器
     scheduler_service.setup_scheduler()
     scheduler_service.start()
-    print("✓ Scheduler started")
+    logger.info("✓ 定时任务调度器已启动")
     
     yield
     
     # 关闭时执行
-    print("Shutting down FastAPI application...")
+    logger.info("关闭 FastAPI 应用...")
     scheduler_service.shutdown(wait=True)
-    print("✓ Scheduler stopped")
+    logger.info("✓ 定时任务调度器已停止")
+    logger.info("=" * 50)
 
 
 # 创建FastAPI应用实例

@@ -63,7 +63,7 @@
               <span class="info-icon">📈</span>
               <div class="info-content">
                 <span class="info-label">年化利率</span>
-                <span class="info-value">{{ parseFloat(wallet.savings_box.interest_rate*100).toFixed(2) }}%</span>
+                <span class="info-value">{{ (Number(wallet.savings_box.interest_rate) * 100).toFixed(2) }}%</span>
               </div>
             </div>
           </div>
@@ -193,7 +193,7 @@
     <!-- 收益计算器对话框 -->
     <EarningsCalculatorModal
       :show="showCalculator"
-      :default-rate="wallet?.savings_box?.interest_rate ? parseFloat(wallet.savings_box.interest_rate*100) : 5.0"
+      :default-rate="wallet?.savings_box?.interest_rate ? Number(wallet.savings_box.interest_rate) * 100 : 5.0"
       @close="showCalculator = false"
     />
   </div>
