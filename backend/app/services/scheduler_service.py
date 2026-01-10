@@ -115,6 +115,9 @@ class SchedulerService:
                                 savings_box
                             )
                             
+                            # 🔧 修复: 在外层会话中再次提交，确保事务真正持久化
+                            await db.commit()
+                            
                             success_count += 1
                             total_interest += float(settled_interest)
                             
