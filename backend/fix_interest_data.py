@@ -109,7 +109,31 @@ async def reset_savings_box_state(db: AsyncSession):
         savings_box.balance = base_balance
         savings_box.total_interest = Decimal("0.00")
         savings_box.last_interest_date = None
-        print(f"  - [重置后] 纯本金余额: ¥{base_balance}, 累计利息: ¥0.00")
+        print(f"  - [重置后] 存钱罐纯本金余额: ¥{base_balance}, 累计利息: ¥0.00")
+
+        # 4. 计算并重置零花钱的纯本金余额
+        pocket_money_res = await db.execute(select(PocketMoney).where(PocketMoney.child_id == child_id))
+        pocket_money = pocket_money_res.scalar_one_or_none()
+
+        if pocket_money:
+            pocket_money_balance_stmt = select(
+                func.sum(
+                    case(
+                        (WalletTransaction.transaction_type == TransactionType.WITHDRAW, -WalletTransaction.amount),
+                        else_=WalletTransaction.amount
+                    )
+                )
+            ).where(
+                WalletTransaction.child_id == child_id,
+                WalletTransaction.wallet_type == WalletType.POCKET_MONEY,
+                WalletTransaction.transaction_type.in_([TransactionType.DEPOSIT, TransactionType.WITHDRAW]),
+            )
+            pocket_money_base_balance = (await db.execute(pocket_money_balance_stmt)).scalar_one_or_none() or Decimal("0.00")
+            
+            pocket_money.balance = pocket_money_base_balance
+            print(f"  - [重置后] 零花钱纯本金余额: ¥{pocket_money_base_balance}")
+        else:
+            print(f"  - 警告: 未找到小朋友 {child_name} 的零花钱账户。")
 
     await db.commit()
     print("\n✅ 阶段一完成：所有存钱罐状态已重置为纯本金。")
