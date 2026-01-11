@@ -553,14 +553,15 @@ class WalletService(BaseService[WalletTransaction]):
         savings_box: SavingsBox
     ) -> Decimal:
         """
-        计算并结算利息（供定时任务调用）
+        【新版】计算并结算利息，将收益存入零花钱
         
         业务逻辑:
-        1. 计算待结算利息
-        2. 在事务中:
-           - 更新余额和累计利息
-           - 记录利息交易
-           - 更新最后计息日期
+        1.  根据存钱罐余额计算待结算利息
+        2.  在事务中:
+            a. 获取对应的零花钱账户（加锁）
+            b. 将利息金额增加到零花钱余额
+            c. 更新存钱罐的累计利息(total_interest)和最后计息日期，但不改变其余额
+            d. 创建一条类型为INTEREST的交易记录，关联到零花钱钱包
         
         Args:
             savings_box: 存钱罐对象
@@ -569,39 +570,56 @@ class WalletService(BaseService[WalletTransaction]):
             Decimal: 结算的利息金额
         """
         try:
-            # 1. 计算待结算利息
+            # 1. 计算待结算利息 (基于存钱罐)
             interest = await savings_box.calculate_pending_interest(self.db)
             
+            yesterday = date.today() - timedelta(days=1)
+
             if interest <= 0:
+                # 如果没有利息，也需要更新计息日期，防止重复计算
+                # 只有在 last_interest_date 早于昨天时才更新
+                if savings_box.last_interest_date is None or savings_box.last_interest_date < yesterday:
+                    savings_box.last_interest_date = yesterday
+                    await self.db.commit()
+                    await self.db.refresh(savings_box)
                 return Decimal('0.00')
-            
-            # 2. 更新余额和累计利息
-            savings_box.balance += interest
+
+            # 2. 获取零花钱账户（加锁）
+            pocket_money = await self._get_pocket_money_for_update(savings_box.child_id)
+
+            # 3. 将利息增加到零花钱余额
+            pocket_money.balance += interest
+
+            # 4. 更新存钱罐（只更新累计利息和日期，不更新余额）
             savings_box.total_interest += interest
-            # 正确的逻辑：将最后计息日更新为我们刚刚完成计算的那一天（昨天）
-            savings_box.last_interest_date = date.today() - timedelta(days=1)
-            
-            # 3. 记录利息交易
+            savings_box.last_interest_date = yesterday
+
+            # 5. 创建交易记录（关联到零花钱）
             transaction = WalletTransaction(
                 child_id=savings_box.child_id,
-                wallet_type=WalletType.SAVINGS_BOX,
-                transaction_type=TransactionType.INTEREST,
+                wallet_type=WalletType.POCKET_MONEY,  # 关联到零花钱
+                transaction_type=TransactionType.INTEREST, # 类型是利息
                 amount=interest,
-                balance_after=savings_box.balance,
+                balance_after=pocket_money.balance, # 交易后余额是零花钱的余额
                 remark="每日利息结算",
                 interest_amount=interest,
                 created_at=datetime.now()
             )
             self.db.add(transaction)
             
-            # 提交事务
+            # 6. 提交事务
             await self.db.commit()
             await self.db.refresh(savings_box)
+            await self.db.refresh(pocket_money)
             
             return interest
         
         except Exception as e:
             await self.db.rollback()
+            # 增加更详细的日志
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"利息结算失败 (child_id={savings_box.child_id}): {str(e)}", exc_info=True)
             raise ValidationError(f"利息结算失败: {str(e)}")
     
     async def _get_savings_box_for_update(self, child_id: int) -> SavingsBox:

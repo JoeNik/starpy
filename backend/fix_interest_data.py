@@ -53,6 +53,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.savings_box import SavingsBox
 from app.models.wallet_transaction import WalletTransaction, WalletType, TransactionType
 from app.models.child import Child
+from app.models.pocket_money import PocketMoney
 from app.services.wallet_service import WalletService
 
 
@@ -81,10 +82,9 @@ async def reset_savings_box_state(db: AsyncSession):
         print(f"\n--- 处理小朋友: {child_name} (ID: {child_id}) ---")
         print(f"[原始状态] 余额: ¥{savings_box.balance}, 累计利息: ¥{savings_box.total_interest}")
 
-        # 1. 删除所有旧的利息记录
+        # 1. 删除所有旧的利息记录 (无论是在存钱罐还是零花钱)
         delete_stmt = delete(WalletTransaction).where(
             WalletTransaction.child_id == child_id,
-            WalletTransaction.wallet_type == WalletType.SAVINGS_BOX,
             WalletTransaction.transaction_type == TransactionType.INTEREST,
         )
         delete_result = await db.execute(delete_stmt)
@@ -147,11 +147,18 @@ async def recalculate_interest(db: AsyncSession, child_ids: list[int]):
         newly_settled_interest = await wallet_service.calculate_and_settle_interest(savings_box)
 
         if newly_settled_interest > 0:
-            # 刷新 savings_box 对象以获取最新余额
+            # 刷新对象以获取最新状态
             await db.refresh(savings_box)
-            print(f"  - [结算成功] 新增总利息: ¥{newly_settled_interest:.2f}")
-            print(f"  - [结算成功] 最新余额: ¥{savings_box.balance:.2f}")
-            print(f"  - [结算成功] 最新累计利息: ¥{savings_box.total_interest:.2f}")
+            
+            # 获取零花钱账户并刷新
+            pocket_money_res = await db.execute(select(PocketMoney).where(PocketMoney.child_id == child_id))
+            pocket_money = pocket_money_res.scalar_one()
+            await db.refresh(pocket_money)
+
+            print(f"  - [结算成功] 新增总利息: ¥{newly_settled_interest:.2f} (已存入零花钱)")
+            print(f"  - [结算成功] 存钱罐余额 (不变): ¥{savings_box.balance:.2f}")
+            print(f"  - [结算成功] 存钱罐累计利息: ¥{savings_box.total_interest:.2f}")
+            print(f"  - [结算成功] 零花钱最新余额: ¥{pocket_money.balance:.2f}")
             total_new_interest += newly_settled_interest
         else:
             print("  - 无需计算利息（可能没有存款或存款时间不足）。")
