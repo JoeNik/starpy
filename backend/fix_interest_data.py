@@ -173,11 +173,11 @@ async def recalculate_interest(db: AsyncSession, child_ids: list[int]):
 
         # 2. 调用服务进行利息计算和结算
         #    该服务会计算从 last_interest_date (现在是 None) 到昨天的所有利息，
-        #    并生成一笔汇总的利息交易。
-        print("  - 调用核心服务进行利息汇总结算...")
-        newly_settled_interest = await wallet_service.calculate_and_settle_interest(savings_box)
+        #    该服务会从头开始，逐日计算所有历史利息，并为每一天生成一条独立的交易记录。
+        print("  - 调用核心服务进行逐日利息计算和结算...")
+        total_new_interest_for_child, transactions_created = await wallet_service.calculate_and_settle_interest(savings_box)
 
-        if newly_settled_interest > 0:
+        if transactions_created > 0:
             # 刷新对象以获取最新状态
             await db.refresh(savings_box)
             
@@ -186,18 +186,18 @@ async def recalculate_interest(db: AsyncSession, child_ids: list[int]):
             pocket_money = pocket_money_res.scalar_one()
             await db.refresh(pocket_money)
 
-            print(f"  - [结算成功] 新增总利息: ¥{newly_settled_interest:.2f} (已存入零花钱)")
-            print(f"  - [结算成功] 存钱罐余额 (不变): ¥{savings_box.balance:.2f}")
-            print(f"  - [结算成功] 存钱罐累计利息: ¥{savings_box.total_interest:.2f}")
-            print(f"  - [结算成功] 零花钱最新余额: ¥{pocket_money.balance:.2f}")
-            total_new_interest += newly_settled_interest
+            print(f"  - [结算成功] 共生成 {transactions_created} 条每日利息记录。")
+            print(f"  - [结算成功] 新增总利息: ¥{total_new_interest_for_child:.4f} (已全部存入零花钱)")
+            print(f"  - [结算后] 存钱罐余额 (本金不变): ¥{savings_box.balance:.2f}")
+            print(f"  - [结算后] 存钱罐累计利息 (更新): ¥{savings_box.total_interest:.4f}")
+            print(f"  - [结算后] 零花钱最新余额: ¥{pocket_money.balance:.2f}")
+            total_new_interest += total_new_interest_for_child
         else:
             print("  - 无需计算利息（可能没有存款或存款时间不足）。")
 
     # 注意：calculate_and_settle_interest 方法内部已经包含了 commit,
-    # 所以在这里不需要再次执行 db.commit()，否则可能引发状态不一致的错误。
-    # await db.commit()
-    print(f"\n✅ 阶段二完成：共生成新利息 ¥{total_new_interest:.2f}")
+    # 所以在这里不需要再次执行 db.commit()。
+    print(f"\n✅ 阶段二完成：所有历史利息已重新计算，总计 ¥{total_new_interest:.4f}")
 
 
 async def main():
