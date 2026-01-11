@@ -46,7 +46,7 @@ print(f"[*] 确保数据库目录 {DB_PATH.parent} 已存在。")
 settings.DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
 # 4. 现在再导入依赖于数据库连接的模块
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -90,8 +90,15 @@ async def reset_savings_box_state(db: AsyncSession):
         delete_result = await db.execute(delete_stmt)
         print(f"  - 已删除旧利息记录: {delete_result.rowcount}条")
 
-        # 2. 计算纯本金余额 (所有存款 - 所有取款)
-        balance_stmt = select(func.sum(WalletTransaction.amount)).where(
+        # 2. 计算纯本金余额 (存款为正, 取款为负)
+        balance_stmt = select(
+            func.sum(
+                case(
+                    (WalletTransaction.transaction_type == TransactionType.WITHDRAW, -WalletTransaction.amount),
+                    else_=WalletTransaction.amount
+                )
+            )
+        ).where(
             WalletTransaction.child_id == child_id,
             WalletTransaction.wallet_type == WalletType.SAVINGS_BOX,
             WalletTransaction.transaction_type.in_([TransactionType.DEPOSIT, TransactionType.WITHDRAW]),
