@@ -2,7 +2,7 @@
 钱包业务逻辑Service
 实现存钱罐、零花钱的所有业务操作
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional, List, Tuple
 
@@ -150,7 +150,7 @@ class WalletService(BaseService[WalletTransaction]):
                 total_interest=savings_box.total_interest,
                 interest_rate=savings_box.interest_rate,
                 last_interest_date=savings_box.last_interest_date,
-                today_interest=savings_box.calculate_pending_interest(),
+                today_interest=await savings_box.calculate_pending_interest(self.db),
                 created_at=savings_box.created_at,
                 updated_at=savings_box.updated_at
             )
@@ -223,7 +223,7 @@ class WalletService(BaseService[WalletTransaction]):
                 total_interest=savings_box.total_interest,
                 interest_rate=savings_box.interest_rate,
                 last_interest_date=savings_box.last_interest_date,
-                today_interest=savings_box.calculate_pending_interest(),
+                today_interest=await savings_box.calculate_pending_interest(self.db),
                 created_at=savings_box.created_at,
                 updated_at=savings_box.updated_at
             )
@@ -254,7 +254,7 @@ class WalletService(BaseService[WalletTransaction]):
             total_interest=savings_box.total_interest,
             interest_rate=savings_box.interest_rate,
             last_interest_date=savings_box.last_interest_date,
-            today_interest=savings_box.calculate_pending_interest(),
+            today_interest=await savings_box.calculate_pending_interest(self.db),
             created_at=savings_box.created_at,
             updated_at=savings_box.updated_at
         )
@@ -521,7 +521,7 @@ class WalletService(BaseService[WalletTransaction]):
                 total_interest=savings_box.total_interest,
                 interest_rate=savings_box.interest_rate,
                 last_interest_date=savings_box.last_interest_date,
-                today_interest=savings_box.calculate_pending_interest(),
+                today_interest=await savings_box.calculate_pending_interest(self.db),
                 created_at=savings_box.created_at,
                 updated_at=savings_box.updated_at
             ),
@@ -570,7 +570,7 @@ class WalletService(BaseService[WalletTransaction]):
         """
         try:
             # 1. 计算待结算利息
-            interest = savings_box.calculate_pending_interest()
+            interest = await savings_box.calculate_pending_interest(self.db)
             
             if interest <= 0:
                 return Decimal('0.00')
@@ -578,7 +578,8 @@ class WalletService(BaseService[WalletTransaction]):
             # 2. 更新余额和累计利息
             savings_box.balance += interest
             savings_box.total_interest += interest
-            savings_box.last_interest_date = date.today()
+            # 正确的逻辑：将最后计息日更新为我们刚刚完成计算的那一天（昨天）
+            savings_box.last_interest_date = date.today() - timedelta(days=1)
             
             # 3. 记录利息交易
             transaction = WalletTransaction(

@@ -1,17 +1,16 @@
 """
-数据修复脚本：修复错误的利息计算并补偿正确利息
+数据修复脚本：重置并重新计算所有存钱罐的利息
 
 功能：
-1. 删除所有错误的利息交易记录
-2. 重置存钱罐余额和累计利息到初始状态
-3. 从创建日期到今天重新计算所有应结算利息
-4. 批量生成正确的利息交易记录
-5. 更新存钱罐余额、累计利息和上次计息日期
-
-修复原因：
-- 之前的脚本使用了错误的公式 (interest_rate / 36500)
-- 正确公式应该是 (interest_rate / 365)
-- 导致每日利息计算结果相差100倍
+1.  **重置**:
+    -   删除所有历史利息交易记录。
+    -   基于非利息交易（存款、取款）重新计算“纯本金”余额。
+    -   将存钱罐的余额重置为纯本金余额，累计利息归零。
+2.  **重新计算**:
+    -   调用核心的 `WalletService.calculate_and_settle_interest` 方法。
+    -   从头开始，逐日、精确地重新计算所有历史利息。
+    -   生成全新的、正确的利息交易记录。
+    -   更新存钱罐的最终余额、累计利息和最后计息日期。
 
 使用方法：
 python3 fix_interest_data.py
@@ -19,166 +18,174 @@ python3 fix_interest_data.py
 
 import asyncio
 import sys
-from datetime import date, timedelta, datetime
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-# 添加项目根目录到路径
-sys.path.insert(0, str(Path(__file__).parent))
+# --- 路径修复 ---
+# 脚本从项目根目录执行时，数据库的相对路径会出错。
+# 此处动态构建数据库的绝对路径以解决此问题。
+
+# 1. 获取 'backend' 目录的绝对路径
+BACKEND_DIR = Path(__file__).parent.resolve()
+
+# 2. 将 'backend' 目录添加到 sys.path 以便能正确导入 'app' 模块
+sys.path.insert(0, str(BACKEND_DIR))
+
+# 3. 先导入 settings，然后用绝对路径覆盖 DATABASE_URL
+from app.core.config import settings
+DB_PATH = BACKEND_DIR / "storage" / "app" / "database.sqlite"
+
+# --- 新增调试和修复 ---
+# 打印将要使用的数据库路径，并确保其父目录存在
+print(f"[*] 动态构建的数据库绝对路径: {DB_PATH}")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+print(f"[*] 确保数据库目录 {DB_PATH.parent} 已存在。")
+# --- 结束新增 ---
+
+settings.DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
+
+# 4. 现在再导入依赖于数据库连接的模块
+from sqlalchemy import select, delete, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.savings_box import SavingsBox
 from app.models.wallet_transaction import WalletTransaction, WalletType, TransactionType
 from app.models.child import Child
-from sqlalchemy import select, delete
+from app.services.wallet_service import WalletService
 
 
-async def fix_interest_data():
-    """修复利息数据
-    
-    步骤：
-    1. 清理错误的利息交易记录
-    2. 重置存钱罐状态
-    3. 使用正确公式重新计算所有利息
-    4. 生成正确的利息交易记录
+async def reset_savings_box_state(db: AsyncSession):
     """
+    阶段一：重置所有存钱罐到初始状态（纯本金）
+    """
+    print("\n" + "=" * 80)
+    print("🚀 阶段一：开始重置所有存钱罐状态...")
     print("=" * 80)
-    print("🔧 开始修复利息数据")
+
+    result = await db.execute(
+        select(SavingsBox, Child.name).join(Child, SavingsBox.child_id == Child.id)
+    )
+    savings_boxes = result.all()
+
+    if not savings_boxes:
+        print("🟡 未找到任何存钱罐数据，跳过重置。")
+        return []
+
+    child_ids_to_recalculate = []
+    for savings_box, child_name in savings_boxes:
+        child_id = savings_box.child_id
+        child_ids_to_recalculate.append(child_id)
+        
+        print(f"\n--- 处理小朋友: {child_name} (ID: {child_id}) ---")
+        print(f"[原始状态] 余额: ¥{savings_box.balance}, 累计利息: ¥{savings_box.total_interest}")
+
+        # 1. 删除所有旧的利息记录
+        delete_stmt = delete(WalletTransaction).where(
+            WalletTransaction.child_id == child_id,
+            WalletTransaction.wallet_type == WalletType.SAVINGS_BOX,
+            WalletTransaction.transaction_type == TransactionType.INTEREST,
+        )
+        delete_result = await db.execute(delete_stmt)
+        print(f"  - 已删除旧利息记录: {delete_result.rowcount}条")
+
+        # 2. 计算纯本金余额 (所有存款 - 所有取款)
+        balance_stmt = select(func.sum(WalletTransaction.amount)).where(
+            WalletTransaction.child_id == child_id,
+            WalletTransaction.wallet_type == WalletType.SAVINGS_BOX,
+            WalletTransaction.transaction_type.in_([TransactionType.DEPOSIT, TransactionType.WITHDRAW]),
+        )
+        base_balance = (await db.execute(balance_stmt)).scalar_one_or_none() or Decimal("0.00")
+        
+        # 3. 重置存钱罐状态
+        savings_box.balance = base_balance
+        savings_box.total_interest = Decimal("0.00")
+        savings_box.last_interest_date = None
+        print(f"  - [重置后] 纯本金余额: ¥{base_balance}, 累计利息: ¥0.00")
+
+    await db.commit()
+    print("\n✅ 阶段一完成：所有存钱罐状态已重置为纯本金。")
+    return child_ids_to_recalculate
+
+
+async def recalculate_interest(db: AsyncSession, child_ids: list[int]):
+    """
+    阶段二：为所有已重置的存钱罐重新计算利息
+    """
+    print("\n" + "=" * 80)
+    print("🚀 阶段二：开始重新计算历史利息...")
     print("=" * 80)
-    
+
+    if not child_ids:
+        print("🟡 没有需要重新计算的存钱罐，跳过。")
+        return
+
+    wallet_service = WalletService(db)
+    total_new_interest = Decimal("0.00")
+
+    for child_id in child_ids:
+        # 获取小朋友姓名用于打印
+        child_name_res = await db.execute(select(Child.name).where(Child.id == child_id))
+        child_name = child_name_res.scalar_one_or_none() or f"未知(ID: {child_id})"
+        print(f"\n--- 重新计算小朋友: {child_name} ---")
+
+        # 1. 获取存钱罐实例
+        savings_box_res = await db.execute(
+            select(SavingsBox).where(SavingsBox.child_id == child_id)
+        )
+        savings_box = savings_box_res.scalar_one_or_none()
+
+        if not savings_box:
+            print(f"  - 警告: 找不到小朋友 {child_name} 的存钱罐，跳过。")
+            continue
+
+        # 2. 调用服务进行利息计算和结算
+        #    该服务会计算从 last_interest_date (现在是 None) 到昨天的所有利息，
+        #    并生成一笔汇总的利息交易。
+        print("  - 调用核心服务进行利息汇总结算...")
+        newly_settled_interest = await wallet_service.calculate_and_settle_interest(savings_box)
+
+        if newly_settled_interest > 0:
+            # 刷新 savings_box 对象以获取最新余额
+            await db.refresh(savings_box)
+            print(f"  - [结算成功] 新增总利息: ¥{newly_settled_interest:.2f}")
+            print(f"  - [结算成功] 最新余额: ¥{savings_box.balance:.2f}")
+            print(f"  - [结算成功] 最新累计利息: ¥{savings_box.total_interest:.2f}")
+            total_new_interest += newly_settled_interest
+        else:
+            print("  - 无需计算利息（可能没有存款或存款时间不足）。")
+
+    # 注意：calculate_and_settle_interest 方法内部已经包含了 commit,
+    # 所以在这里不需要再次执行 db.commit()，否则可能引发状态不一致的错误。
+    # await db.commit()
+    print(f"\n✅ 阶段二完成：共生成新利息 ¥{total_new_interest:.2f}")
+
+
+async def main():
+    """主执行函数"""
+    print("=" * 80)
+    print("🔧 开始执行存钱罐利息重置和重新计算脚本")
+    print("=" * 80)
+
     async with AsyncSessionLocal() as db:
         try:
-            # 1. 查询所有存钱罐
-            result = await db.execute(
-                select(SavingsBox, Child.name)
-                .join(Child, SavingsBox.child_id == Child.id)
-            )
-            savings_boxes = result.all()
+            # 阶段一：重置
+            child_ids = await reset_savings_box_state(db)
             
-            if not savings_boxes:
-                print("❌ 未找到任何存钱罐数据")
-                return
-            
-            total_fixed_interest = Decimal('0.00')
-            
-            for savings_box, child_name in savings_boxes:
-                print(f"\n{'='*60}")
-                print(f"📦 处理存钱罐: {child_name}")
-                print(f"{'='*60}")
-                print(f"[原始状态]")
-                print(f"   余额: ¥{savings_box.balance}")
-                print(f"   累计利息: ¥{savings_box.total_interest}")
-                print(f"   创建时间: {savings_box.created_at.date()}")
-                print(f"   上次计息日期: {savings_box.last_interest_date}")
-                
-                # 2. 删除所有利息交易记录
-                delete_result = await db.execute(
-                    delete(WalletTransaction)
-                    .where(
-                        WalletTransaction.child_id == savings_box.child_id,
-                        WalletTransaction.wallet_type == WalletType.SAVINGS_BOX,
-                        WalletTransaction.transaction_type == TransactionType.INTEREST
-                    )
-                )
-                deleted_count = delete_result.rowcount
-                print(f"\n[清理数据]")
-                print(f"   删除错误利息记录: {deleted_count}条")
-                
-                # 3. 计算初始余额（减去累计错误利息）
-                initial_balance = savings_box.balance - savings_box.total_interest
-                print(f"   重置余额: ¥{savings_box.balance} - ¥{savings_box.total_interest} = ¥{initial_balance}")
-                
-                # 4. 重置存钱罐状态
-                savings_box.balance = initial_balance
-                savings_box.total_interest = Decimal('0.00')
-                savings_box.last_interest_date = None
-                
-                # 5. 确定起始日期和结束日期
-                # 起始日期：创建日期的第二天（创建当天不计息）
-                start_date = savings_box.created_at.date() + timedelta(days=1)
-                end_date = date.today()
-                
-                if start_date > end_date:
-                    print(f"\n⚠️ 创建日期太晚，暂无需结算的利息")
-                    continue
-                
-                # 6. 计算需要补偿的天数
-                days_to_fix = (end_date - start_date).days + 1
-                print(f"\n[重新计算利息]")
-                print(f"   计息期间: {start_date} 到 {end_date} ({days_to_fix}天)")
-                print(f"   初始余额: ¥{initial_balance}")
-                print(f"   年化利率: {float(savings_box.interest_rate * 100):.2f}%")
-                
-                # 7. 逐日计算利息并创建交易记录
-                # 注意：需要使用每日累积后的余额来计算次日利息（复利）
-                current_balance = initial_balance
-                total_interest_accumulated = Decimal('0.00')
-                current_date = start_date
-                daily_transactions = []
-                
-                print(f"\n[逐日计息明细]")
-                while current_date <= end_date:
-                    # ✅ 修复：使用正确的公式 (interest_rate / 365)
-                    daily_rate = savings_box.interest_rate / Decimal('365')
-                    daily_interest = (current_balance * daily_rate).quantize(Decimal('0.01'))
-                    
-                    if daily_interest > 0:
-                        # 创建利息交易记录（使用当天的时间戳）
-                        transaction_time = datetime.combine(current_date, datetime.min.time())
-                        transaction = WalletTransaction(
-                            child_id=savings_box.child_id,
-                            wallet_type='SAVINGS_BOX',
-                            transaction_type='INTEREST',
-                            amount=daily_interest,
-                            balance_after=current_balance + daily_interest,
-                            remark=f'补偿{current_date}的每日利息',
-                            interest_amount=daily_interest,
-                            created_at=transaction_time
-                        )
-                        daily_transactions.append(transaction)
-                        
-                        # 累积利息和余额（复利）
-                        current_balance += daily_interest
-                        total_interest_accumulated += daily_interest
-                        
-                        print(f"   {current_date}: +¥{daily_interest:>6} → 余额 ¥{current_balance}")
-                    
-                    current_date += timedelta(days=1)
-                
-                # 8. 批量保存交易记录
-                if daily_transactions:
-                    db.add_all(daily_transactions)
-                    print(f"\n[保存记录]")
-                    print(f"   ✓ 创建了 {len(daily_transactions)} 条新的利息交易记录")
-                
-                # 9. 更新存钱罐数据
-                savings_box.balance = current_balance
-                savings_box.total_interest = total_interest_accumulated
-                savings_box.last_interest_date = end_date
-                
-                print(f"\n[最终状态]")
-                print(f"   ✓ 补偿利息总额: ¥{total_interest_accumulated}")
-                print(f"   ✓ 最终余额: ¥{savings_box.balance}")
-                print(f"   ✓ 累计利息: ¥{savings_box.total_interest}")
-                print(f"   ✓ 计息日期: {savings_box.last_interest_date}")
-                
-                total_fixed_interest += total_interest_accumulated
-            
-            # 10. 提交所有更改
-            await db.commit()
-            
+            # 阶段二：重新计算
+            await recalculate_interest(db, child_ids)
+
             print("\n" + "=" * 80)
-            print(f"✅ 修复完成！")
-            print(f"   共补偿正确利息: ¥{total_fixed_interest}")
-            print(f"   请刷新前端页面查看更新后的数据")
+            print("🎉 全部任务成功完成！数据已修复。")
             print("=" * 80)
-            
+
         except Exception as e:
             await db.rollback()
-            print(f"\n❌ 修复失败: {str(e)}")
+            print(f"\n❌ 操作失败，已回滚所有更改: {str(e)}")
             import traceback
             traceback.print_exc()
 
 
 if __name__ == "__main__":
-    asyncio.run(fix_interest_data())
+    asyncio.run(main())

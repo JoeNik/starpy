@@ -99,22 +99,16 @@ class SchedulerService:
                             f"interest_rate={savings_box.interest_rate}"
                         )
                         
-                        # 计算待结算利息
-                        interest = savings_box.calculate_pending_interest()
+                        # 导入WalletService进行结算
+                        from app.services.wallet_service import WalletService
+                        wallet_service = WalletService(db)
                         
-                        # 🔍 诊断日志: 打印计算结果
-                        logger.info(f"💰 计算待结算利息: ¥{interest}")
+                        # 直接调用结算方法，它内部会处理利息计算
+                        settled_interest = await wallet_service.calculate_and_settle_interest(
+                            savings_box
+                        )
                         
-                        if interest > 0:
-                            # 导入WalletService进行结算
-                            from app.services.wallet_service import WalletService
-                            wallet_service = WalletService(db)
-                            
-                            # 结算利息
-                            settled_interest = await wallet_service.calculate_and_settle_interest(
-                                savings_box
-                            )
-                            
+                        if settled_interest is not None and settled_interest > 0:
                             # 🔧 修复: 在外层会话中再次提交，确保事务真正持久化
                             await db.commit()
                             
@@ -126,8 +120,8 @@ class SchedulerService:
                                 f"¥{settled_interest:.2f} (余额: ¥{savings_box.balance:.2f})"
                             )
                         else:
-                            # 无需结算（余额为0或已结算）
-                            logger.debug(
+                            # 无需结算（利息为0或已结算）
+                            logger.info(
                                 f"- 小朋友ID={savings_box.child_id} 无需结算 "
                                 f"(余额: ¥{savings_box.balance:.2f})"
                             )
